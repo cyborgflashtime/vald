@@ -152,7 +152,7 @@ ngt:
   bulk_insert_chunk_size: 10
   creation_edge_size: 20
   default_epsilon: 0.01
-  default_pool_size: 10000
+  default_pool_size: 100
   default_radius: -1
   dimension: 6
   distance_type: l2
