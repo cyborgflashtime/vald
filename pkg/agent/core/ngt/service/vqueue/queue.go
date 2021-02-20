@@ -52,6 +52,7 @@ type vqueue struct {
 	dmu        sync.Mutex
 	eg         errgroup.Group
 	finalizing atomic.Value
+	closed     atomic.Value
 }
 
 type index struct {
@@ -76,12 +77,15 @@ func New(eg errgroup.Group) Queue {
 		eg:   eg,
 	}
 	vq.finalizing.Store(false)
+	vq.closed.Store(true)
 	return vq
 }
 
 func (v *vqueue) Start(ctx context.Context) (<-chan error, error) {
 	ech := make(chan error, 1)
 	v.eg.Go(safety.RecoverFunc(func() (err error) {
+		v.closed.Store(false)
+		defer v.closed.Store(true)
 		defer close(ech)
 		for {
 			select {
@@ -108,7 +112,8 @@ func (v *vqueue) Start(ctx context.Context) (<-chan error, error) {
 }
 
 func (v *vqueue) PushInsert(uuid string, vector []float32, date int64) error {
-	if v.finalizing.Load().(bool) {
+	// we have to check this instance's channel bypass daemon is finalizing or not, if in finalizing process we should not send new index to channel
+	if v.finalizing.Load().(bool) || v.closed.Load().(bool) {
 		return errors.ErrVQueueFinalizing
 	}
 	if date == 0 {
@@ -124,7 +129,8 @@ func (v *vqueue) PushInsert(uuid string, vector []float32, date int64) error {
 }
 
 func (v *vqueue) PushDelete(uuid string, date int64) error {
-	if v.finalizing.Load().(bool) {
+	// we have to check this instance's channel bypass daemon is finalizing or not, if in finalizing process we should not send new index to channel
+	if v.finalizing.Load().(bool) || v.closed.Load().(bool) {
 		return errors.ErrVQueueFinalizing
 	}
 	if date == 0 {
@@ -276,6 +282,32 @@ func (v *vqueue) flushAndLoadDelete() (udk []key) {
 	sort.Slice(udk, func(i, j int) bool {
 		return udk[i].date < udk[j].date
 	})
+
+	udm := make(map[string]int64, len(udk))
+	for _, d := range udk {
+		udm[d.uuid] = d.date
+	}
+	dl = dl[:0]
+	// we should check insert vqueue if insert vqueue exists and delete operation date is newer than insert operation date then we should remove insert vqueue's data.
+	v.imu.Lock()
+	for i, idx := range v.uii {
+		// check same uuid & operation date
+		// if date is equal, it may update operation we shouldn't remove at that time
+		date, exists := udm[idx.uuid]
+		if exists && date > idx.date {
+			dl = append(dl, i)
+		}
+	}
+	v.imu.Unlock()
+	sort.Sort(sort.Reverse(sort.IntSlice(dl)))
+	for _, i := range dl {
+		v.imu.Lock()
+		// remove unnecessary insert vector queue data
+		v.uii = append(v.uii[:i], v.uii[i+1:]...)
+		// remove from existing map
+		delete(v.uiil, v.uii[i].uuid)
+		v.imu.Unlock()
+	}
 	return udk
 }
 
