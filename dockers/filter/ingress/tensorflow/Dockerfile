@@ -55,18 +55,18 @@ WORKDIR ${GOPATH}/src/github.com/${ORG}/${REPO}
 COPY Makefile .
 COPY .git .
 
-RUN make tensorflow/install
-
 RUN make REPO=${ORG} NAME=${REPO} cmd/${PKG}/${APP_NAME} \
-    && upx ${UPX_OPTIONS} -o "/usr/bin/${APP_NAME}" "cmd/${PKG}/${APP_NAME}"
+    && cp "cmd/${PKG}/${APP_NAME}" "/usr/bin/${APP_NAME}"
+#    && upx ${UPX_OPTIONS} -o "/usr/bin/${APP_NAME}" "cmd/${PKG}/${APP_NAME}"
 
-FROM ${DISTROLESS_IMAGE}:${DISTROLESS_IMAGE_TAG}
+#FROM ${DISTROLESS_IMAGE}:${DISTROLESS_IMAGE_TAG}
 LABEL maintainer "${MAINTAINER}"
 
 ENV APP_NAME tensorflow
 
-COPY --from=builder /usr/bin/${APP_NAME} /go/bin/${APP_NAME}
+#COPY --from=builder /usr/bin/${APP_NAME} /go/bin/${APP_NAME}
 
-USER nonroot:nonroot
+#USER nonroot:nonroot
 
-ENTRYPOINT ["/go/bin/tensorflow"]
+#ENTRYPOINT ["/go/bin/tensorflow"]
+ENTRYPOINT ["/usr/bin/tensorflow"]
